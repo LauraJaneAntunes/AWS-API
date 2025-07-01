@@ -134,3 +134,16 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# AWS e arquivos específicos
+.aws/
+*.pem
+*.ppk
+
+# Logs da aplicação
+logs/
+*.log
+
+# Arquivos temporários
+temp/
+tmp/

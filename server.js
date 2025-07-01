@@ -1,4 +1,17 @@
 require('dotenv').config();
+
+// Verificação das credenciais AWS
+console.log('Verificando credenciais AWS...');
+if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.REGION) {
+    console.error('ERRO: Credenciais AWS não encontradas no arquivo .env');
+    console.log('ACCESS_KEY_ID:', process.env.ACCESS_KEY_ID ? 'Presente' : 'Ausente');
+    console.log('SECRET_ACCESS_KEY:', process.env.SECRET_ACCESS_KEY ? 'Presente' : 'Ausente');
+    console.log('REGION:', process.env.REGION ? 'Presente' : 'Ausente');
+    console.log('SESSION_TOKEN:', process.env.SESSION_TOKEN ? 'Presente' : 'Ausente');
+} else {
+    console.log('✓ Credenciais AWS carregadas com sucesso');
+}
+
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -13,6 +26,31 @@ app.use(cors({
 
 //BD
 const mongoose = require('mongoose');
+// MySQL
+const mysql = require('mysql2/promise');
+
+// Configuração do pool de conexão MySQL
+const pool = mysql.createPool({
+    host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''), // Remove aspas das variáveis
+    user: process.env.CNN_MYSQL_DB_USER.replace(/"/g, ''),
+    password: process.env.CNN_MYSQL_DB_PASSWORD.replace(/"/g, ''),
+    database: process.env.CNN_MYSQL_DB_NAME.replace(/"/g, ''),
+    port: parseInt(process.env.CNN_MYSQL_DB_PORT.replace(/"/g, '')),
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    acquireTimeout: 60000,
+    timeout: 60000,
+});
+
+const DB_NAME = process.env.CNN_MYSQL_DB_NAME.replace(/"/g, '');
+
+console.log('Configuração MySQL:');
+console.log('Host:', process.env.CNN_MYSQL_DB_HOST);
+console.log('User:', process.env.CNN_MYSQL_DB_USER);
+console.log('Database:', process.env.CNN_MYSQL_DB_NAME);
+console.log('Port:', process.env.CNN_MYSQL_DB_PORT);
+
 //swagger
 const swaggerDocs = require('./swagger');
 //S3
@@ -30,14 +68,14 @@ app.use(express.json());
 *     description: Operações de CRUD para usuários no MongoDb.
 *   - name: Buckets
 *     description: Operações de Listar buckets, upload e remoção de arquivo para um bucket S3.
+*   - name: MySQL RDS
+*     description: Operações de CRUD para produtos no MySQL RDS da AWS.
 */
 
 
 //#region CRUD MongoDb
-mongoose.connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}).then(() => logInfo('MongoDB conectado', null))
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => logInfo('MongoDB conectado', null))
     .catch(err => logError('Erro ao logar mongodb' + err, null, err));
 
 const UserSchema = new mongoose.Schema({
@@ -64,7 +102,7 @@ const User = mongoose.model('Usuario', UserSchema);
 app.get('/mongodb/testar-conexao', async (req, res) => {
     try {
         //Tentando conectar ao MongoDB
-        await mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+        await mongoose.connect(process.env.MONGO_URI);
         const user = await User.findOne(); //Consulta simples (primeiro usuário encontrado)
 
         logInfo('Conexão com o MongoDB efetuada com sucesso', req);
@@ -471,26 +509,87 @@ app.delete('/buckets/:bucketName/file/:fileName', async (req, res) => {
 //#endregion
 
 //#region MySql
+
+/**
+ * @swagger
+ * /mysql/testar-conexao:
+ *   get:
+ *     tags:
+ *       - MySQL RDS
+ *     summary: Testa a conexão com o MySQL RDS
+ *     description: Verifica se a aplicação consegue se conectar ao MySQL RDS da AWS.
+ *     responses:
+ *       200:
+ *         description: Conexão bem-sucedida
+ *       500:
+ *         description: Erro na conexão com o MySQL
+ */
+app.get('/mysql/testar-conexao', async (req, res) => {
+    try {
+        // Testando conexão com o MySQL
+        const connection = await pool.getConnection();
+        await connection.ping();
+        
+        // Verificando versão do MySQL
+        const [rows] = await connection.execute('SELECT VERSION() as version');
+        const version = rows[0].version;
+        
+        // Verificando se o banco existe
+        const [databases] = await connection.execute('SHOW DATABASES');
+        const hasDatabase = databases.some(db => db.Database === DB_NAME);
+        
+        connection.release();
+        
+        logInfo('Conexão com o MySQL RDS efetuada com sucesso', req);
+        
+        res.status(200).json({
+            status: 'Conexão com o MySQL RDS bem-sucedida!',
+            version: version,
+            host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''),
+            database_exists: hasDatabase,
+            target_database: DB_NAME
+        });
+    } catch (error) {
+        await logError('Erro ao conectar no MySQL RDS: ' + error.message, req, error);
+        res.status(500).json({ 
+            error: 'Erro na conexão com o MySQL RDS',
+            message: error.message,
+            host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''),
+            code: error.code
+        });
+    }
+});
+
 /**
  * @swagger
  * /init-db:
  *   post:
+ *     tags:
+ *       - MySQL RDS
  *     summary: Cria o banco de dados e a tabela produto
  *     responses:
  *       200:
  *         description: Banco de dados e tabela criados com sucesso
+ *       500:
+ *         description: Erro ao criar banco/tabela
  */
 app.post('/init-db', async (req, res) => {
     try {
-      const createDB = `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`; USE \`${DB_NAME}\`;
-        CREATE TABLE IF NOT EXISTS produto (
+      // Criar banco de dados se não existir
+      await pool.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+      
+      // Usar o banco de dados
+      await pool.query(`USE \`${DB_NAME}\``);
+      
+      // Criar tabela produto se não existir
+      await pool.query(`CREATE TABLE IF NOT EXISTS produto (
           Id INT AUTO_INCREMENT PRIMARY KEY,
           Nome VARCHAR(255) NOT NULL,
           Descricao VARCHAR(255) NOT NULL,
           Preco DECIMAL(10,2) NOT NULL
-        );`;
-      await pool.query(createDB);
-      res.send('Banco de dados e tabela criados com sucesso.');
+        )`);
+      
+      res.json({ message: 'Banco de dados e tabela criados com sucesso.', database: DB_NAME });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -500,6 +599,8 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos:
    *   get:
+   *     tags:
+   *       - MySQL RDS
    *     summary: Lista todos os produtos
    *     responses:
    *       200:
@@ -519,6 +620,8 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   get:
+   *     tags:
+   *       - MySQL RDS
    *     summary: Busca um produto pelo ID
    *     parameters:
    *       - in: path
@@ -547,6 +650,8 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos:
    *   post:
+   *     tags:
+   *       - MySQL RDS
    *     summary: Cria um novo produto
    *     requestBody:
    *       required: true
@@ -587,6 +692,8 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   put:
+   *     tags:
+   *       - MySQL RDS
    *     summary: Atualiza um produto
    *     parameters:
    *       - in: path
@@ -636,6 +743,8 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   delete:
+   *     tags:
+   *       - MySQL RDS
    *     summary: Deleta um produto
    *     parameters:
    *       - in: path

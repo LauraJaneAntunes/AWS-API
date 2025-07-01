@@ -16,7 +16,43 @@ API RESTful integrada com serviços AWS (S3, RDS MySQL, CloudWatch).
 - NPM
 - Credenciais AWS configuradas
 
-## 🛠️ Instalação Local
+## � Configuração de Segurança AWS
+
+### Desenvolvimento Local
+Use credenciais no arquivo `.env`:
+```bash
+cp .env.example .env
+# Editar .env com suas credenciais AWS
+```
+
+### Produção (EC2) - IAM Role ⭐
+**Recomendado**: Use IAM Role em vez de credenciais hardcoded:
+
+1. **Criar IAM Role**:
+   - Nome: `EC2-API-Role`
+   - Trusted entity: `EC2`
+   - Permissions: `AmazonS3FullAccess`, `CloudWatchLogsFullAccess`
+
+2. **Associar à EC2**:
+   - EC2 Console → Instance → Actions → Security → Modify IAM Role
+   - Selecionar: `EC2-API-Role`
+
+3. **Configurar produção**:
+```bash
+# Na EC2
+chmod +x setup-production.sh
+./setup-production.sh
+pm2 restart api-aws
+```
+
+### Diferenças por Ambiente
+
+| Ambiente | Autenticação | Arquivo .env |
+|----------|-------------|--------------|
+| **Local** | Credenciais explícitas | ACCESS_KEY_ID, SECRET_ACCESS_KEY |
+| **EC2** | IAM Role | Apenas REGION (sem credenciais) |
+
+## �🛠️ Instalação Local
 
 ```bash
 # Clonar repositório

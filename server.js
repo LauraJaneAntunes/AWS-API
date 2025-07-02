@@ -74,8 +74,7 @@ const User = mongoose.model('Usuario', UserSchema);
  */
 app.get('/mongodb/testar-conexao', async (req, res) => {
     try {
-        //Tentando conectar ao MongoDB
-        await mongoose.connect(process.env.MONGO_URI);
+        // Usa a conexão global que já foi estabelecida
         const user = await User.findOne(); //Consulta simples (primeiro usuário encontrado)
 
         logInfo('Conexão com o MongoDB efetuada com sucesso', req);
@@ -471,15 +470,65 @@ app.post('/buckets/:bucketName/upload', upload.single('file'), async (req, res) 
  *         description: Arquivo deletado com sucesso
  */
 app.delete('/buckets/:bucketName/file/:fileName', async (req, res) => {
+    const { bucketName, fileName } = req.params;
+    
+    const params = {
+        Bucket: bucketName,
+        Key: fileName,
+    };
+
     try {
-        logInfo('Objeto removido', req, data.Buckets);
+        const data = await s3.deleteObject(params).promise();
+        logInfo('Objeto removido', req, { bucketName, fileName });
+        res.status(200).json({ message: 'Arquivo deletado com sucesso', data });
     } catch (error) {
         logError("Erro ao remover objeto", req, error);
+        res.status(500).json({ error: 'Erro ao deletar arquivo', details: error });
     }
 });
 //#endregion
 
 //#region MySql
+const mysql = require('mysql2/promise');
+
+// Configuração do MySQL
+const DB_NAME = process.env.CNN_MYSQL_DB_NAME || 'testdb';
+const pool = mysql.createPool({
+    host: process.env.CNN_MYSQL_DB_HOST || 'localhost',
+    user: process.env.CNN_MYSQL_DB_USER || 'root',
+    password: process.env.CNN_MYSQL_DB_PASSWORD || '',
+    port: process.env.CNN_MYSQL_DB_PORT || 3306,
+    database: DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+/**
+ * @swagger
+ * /mysql/testar-conexao:
+ *   get:
+ *     tags:
+ *       - MySQL
+ *     summary: Testa a conexão com o MySQL
+ *     description: Verifica se a aplicação consegue se conectar ao MySQL.
+ *     responses:
+ *       200:
+ *         description: Conexão bem-sucedida
+ *       500:
+ *         description: Erro na conexão com o MySQL
+ */
+app.get('/mysql/testar-conexao', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT 1 as test');
+        logInfo('Conexão com o MySQL efetuada com sucesso', req);
+        res.status(200).send('Conexão com o MySQL bem-sucedida!');
+    } catch (error) {
+        logError('Erro ao conectar no MySQL: ' + error, req, error);
+        res.status(500).send('Erro na conexão com o MySQL');
+    }
+});
+
 /**
  * @swagger
  * /init-db:
@@ -670,6 +719,21 @@ app.post('/init-db', async (req, res) => {
   });
 
 //#endregion
+
+// Rota raiz para evitar 404
+app.get('/', (req, res) => {
+    res.json({
+        message: 'API AWS funcionando!',
+        swagger: '/swagger',
+        endpoints: {
+            mongodb: '/mongodb/testar-conexao',
+            mysql: '/mysql/testar-conexao',
+            usuarios: '/usuarios',
+            produtos: '/produtos',
+            buckets: '/buckets'
+        }
+    });
+});
 
 swaggerDocs(app);
 app.listen(3000, () => console.log('Servidor rodando na porta 3000'));

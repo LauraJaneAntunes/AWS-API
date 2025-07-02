@@ -1,27 +1,15 @@
 require('dotenv').config();
 
-// Verificar se está rodando em EC2 ou ambiente local
-const isEC2 = process.env.NODE_ENV === 'production' || !process.env.ACCESS_KEY_ID;
-
 // Verificação das credenciais AWS
-console.log('Verificando configuração AWS...');
-
-// Verificar se está em EC2 (ambiente de produção) ou local (desenvolvimento)
-
-if (isEC2) {
-    console.log('🔐 Modo EC2: Usando IAM Role para autenticação AWS');
-    console.log('REGION:', process.env.REGION || 'us-east-1');
+console.log('Verificando credenciais AWS...');
+if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.REGION) {
+    console.error('ERRO: Credenciais AWS não encontradas no arquivo .env');
+    console.log('ACCESS_KEY_ID:', process.env.ACCESS_KEY_ID ? 'Presente' : 'Ausente');
+    console.log('SECRET_ACCESS_KEY:', process.env.SECRET_ACCESS_KEY ? 'Presente' : 'Ausente');
+    console.log('REGION:', process.env.REGION ? 'Presente' : 'Ausente');
+    console.log('SESSION_TOKEN:', process.env.SESSION_TOKEN ? 'Presente' : 'Ausente');
 } else {
-    console.log('💻 Modo Local: Usando credenciais do .env');
-    if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.REGION) {
-        console.error('ERRO: Credenciais AWS não encontradas no arquivo .env');
-        console.log('ACCESS_KEY_ID:', process.env.ACCESS_KEY_ID ? 'Presente' : 'Ausente');
-        console.log('SECRET_ACCESS_KEY:', process.env.SECRET_ACCESS_KEY ? 'Presente' : 'Ausente');
-        console.log('REGION:', process.env.REGION ? 'Presente' : 'Ausente');
-        console.log('SESSION_TOKEN:', process.env.SESSION_TOKEN ? 'Presente' : 'Ausente');
-    } else {
-        console.log('✓ Credenciais AWS carregadas com sucesso');
-    }
+    console.log('✓ Credenciais AWS carregadas com sucesso');
 }
 
 const express = require('express');
@@ -38,31 +26,6 @@ app.use(cors({
 
 //BD
 const mongoose = require('mongoose');
-// MySQL
-const mysql = require('mysql2/promise');
-
-// Configuração do pool de conexão MySQL
-const pool = mysql.createPool({
-    host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''), // Remove aspas das variáveis
-    user: process.env.CNN_MYSQL_DB_USER.replace(/"/g, ''),
-    password: process.env.CNN_MYSQL_DB_PASSWORD.replace(/"/g, ''),
-    database: process.env.CNN_MYSQL_DB_NAME.replace(/"/g, ''),
-    port: parseInt(process.env.CNN_MYSQL_DB_PORT.replace(/"/g, '')),
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    acquireTimeout: 60000,
-    timeout: 60000,
-});
-
-const DB_NAME = process.env.CNN_MYSQL_DB_NAME.replace(/"/g, '');
-
-console.log('Configuração MySQL:');
-console.log('Host:', process.env.CNN_MYSQL_DB_HOST);
-console.log('User:', process.env.CNN_MYSQL_DB_USER);
-console.log('Database:', process.env.CNN_MYSQL_DB_NAME);
-console.log('Port:', process.env.CNN_MYSQL_DB_PORT);
-
 //swagger
 const swaggerDocs = require('./swagger');
 //S3
@@ -80,8 +43,6 @@ app.use(express.json());
 *     description: Operações de CRUD para usuários no MongoDb.
 *   - name: Buckets
 *     description: Operações de Listar buckets, upload e remoção de arquivo para um bucket S3.
-*   - name: MySQL RDS
-*     description: Operações de CRUD para produtos no MySQL RDS da AWS.
 */
 
 
@@ -375,24 +336,12 @@ app.delete('/usuarios/:id', async (req, res) => {
 //#endregion
 
 //#region S3
-// Configuração AWS - usa IAM Role em EC2 ou credenciais localmente
-const awsConfig = {
-    region: process.env.REGION || 'us-east-1'
-};
-
-// Se não estiver em EC2, usar credenciais do .env
-if (!isEC2 && process.env.ACCESS_KEY_ID) {
-    awsConfig.accessKeyId = process.env.ACCESS_KEY_ID;
-    awsConfig.secretAccessKey = process.env.SECRET_ACCESS_KEY;
-    if (process.env.SESSION_TOKEN) {
-        awsConfig.sessionToken = process.env.SESSION_TOKEN;
-    }
-    console.log('🔑 Usando credenciais explícitas para desenvolvimento local');
-} else {
-    console.log('🎭 Usando IAM Role da EC2 para autenticação');
-}
-
-AWS.config.update(awsConfig);
+AWS.config.update({
+    accessKeyId: process.env.ACCESS_KEY_ID,
+    secretAccessKey: process.env.SECRET_ACCESS_KEY,
+    region: process.env.REGION,
+    sessionToken: process.env.SESSION_TOKEN,
+});
 
 const s3 = new AWS.S3();
 
@@ -533,87 +482,26 @@ app.delete('/buckets/:bucketName/file/:fileName', async (req, res) => {
 //#endregion
 
 //#region MySql
-
-/**
- * @swagger
- * /mysql/testar-conexao:
- *   get:
- *     tags:
- *       - MySQL RDS
- *     summary: Testa a conexão com o MySQL RDS
- *     description: Verifica se a aplicação consegue se conectar ao MySQL RDS da AWS.
- *     responses:
- *       200:
- *         description: Conexão bem-sucedida
- *       500:
- *         description: Erro na conexão com o MySQL
- */
-app.get('/mysql/testar-conexao', async (req, res) => {
-    try {
-        // Testando conexão com o MySQL
-        const connection = await pool.getConnection();
-        await connection.ping();
-        
-        // Verificando versão do MySQL
-        const [rows] = await connection.execute('SELECT VERSION() as version');
-        const version = rows[0].version;
-        
-        // Verificando se o banco existe
-        const [databases] = await connection.execute('SHOW DATABASES');
-        const hasDatabase = databases.some(db => db.Database === DB_NAME);
-        
-        connection.release();
-        
-        logInfo('Conexão com o MySQL RDS efetuada com sucesso', req);
-        
-        res.status(200).json({
-            status: 'Conexão com o MySQL RDS bem-sucedida!',
-            version: version,
-            host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''),
-            database_exists: hasDatabase,
-            target_database: DB_NAME
-        });
-    } catch (error) {
-        await logError('Erro ao conectar no MySQL RDS: ' + error.message, req, error);
-        res.status(500).json({ 
-            error: 'Erro na conexão com o MySQL RDS',
-            message: error.message,
-            host: process.env.CNN_MYSQL_DB_HOST.replace(/"/g, ''),
-            code: error.code
-        });
-    }
-});
-
 /**
  * @swagger
  * /init-db:
  *   post:
- *     tags:
- *       - MySQL RDS
  *     summary: Cria o banco de dados e a tabela produto
  *     responses:
  *       200:
  *         description: Banco de dados e tabela criados com sucesso
- *       500:
- *         description: Erro ao criar banco/tabela
  */
 app.post('/init-db', async (req, res) => {
     try {
-      // Criar banco de dados se não existir
-      await pool.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
-      
-      // Usar o banco de dados
-      await pool.query(`USE \`${DB_NAME}\``);
-      
-      // Criar tabela produto se não existir
-      await pool.query(`CREATE TABLE IF NOT EXISTS produto (
+      const createDB = `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`; USE \`${DB_NAME}\`;
+        CREATE TABLE IF NOT EXISTS produto (
           Id INT AUTO_INCREMENT PRIMARY KEY,
           Nome VARCHAR(255) NOT NULL,
           Descricao VARCHAR(255) NOT NULL,
           Preco DECIMAL(10,2) NOT NULL
-        )`);
-      
-      res.json({ message: 'Banco de dados e tabela criados com sucesso.', database: DB_NAME });
+        );`;
+      await pool.query(createDB);
+      res.send('Banco de dados e tabela criados com sucesso.');
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -623,8 +511,6 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos:
    *   get:
-   *     tags:
-   *       - MySQL RDS
    *     summary: Lista todos os produtos
    *     responses:
    *       200:
@@ -644,8 +530,6 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   get:
-   *     tags:
-   *       - MySQL RDS
    *     summary: Busca um produto pelo ID
    *     parameters:
    *       - in: path
@@ -674,8 +558,6 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos:
    *   post:
-   *     tags:
-   *       - MySQL RDS
    *     summary: Cria um novo produto
    *     requestBody:
    *       required: true
@@ -716,8 +598,6 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   put:
-   *     tags:
-   *       - MySQL RDS
    *     summary: Atualiza um produto
    *     parameters:
    *       - in: path
@@ -767,8 +647,6 @@ app.post('/init-db', async (req, res) => {
    * @swagger
    * /produtos/{id}:
    *   delete:
-   *     tags:
-   *       - MySQL RDS
    *     summary: Deleta um produto
    *     parameters:
    *       - in: path

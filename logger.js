@@ -1,11 +1,24 @@
 require('dotenv').config();
 const AWS = require('aws-sdk');
-AWS.config.update({
-    accessKeyId: process.env.ACCESS_KEY_ID,
-    secretAccessKey: process.env.SECRET_ACCESS_KEY,
-    region: process.env.REGION,
-    sessionToken: process.env.SESSION_TOKEN,
-});
+
+// Detecta automaticamente se está rodando na EC2 ou local
+console.log('Verificando configuração AWS...');
+if (process.env.ACCESS_KEY_ID && process.env.SECRET_ACCESS_KEY) {
+    console.log('💻 Modo Local: Usando credenciais do .env');
+    AWS.config.update({
+        accessKeyId: process.env.ACCESS_KEY_ID,
+        secretAccessKey: process.env.SECRET_ACCESS_KEY,
+        region: process.env.REGION,
+        sessionToken: process.env.SESSION_TOKEN,
+    });
+    console.log('🔑 Usando credenciais explícitas para desenvolvimento local');
+} else {
+    console.log('🔐 Modo EC2: Usando IAM Role para autenticação AWS');
+    AWS.config.update({
+        region: process.env.REGION,
+    });
+    console.log('🎭 Usando IAM Role da EC2 para autenticação');
+}
 
 const cloudwatchlogs = new AWS.CloudWatchLogs();
 

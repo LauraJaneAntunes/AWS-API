@@ -1,15 +1,17 @@
 require('dotenv').config();
 
 // Verificação das credenciais AWS
-console.log('Verificando credenciais AWS...');
-if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.REGION) {
-    console.error('ERRO: Credenciais AWS não encontradas no arquivo .env');
+console.log('Verificando configuração AWS...');
+if (process.env.ACCESS_KEY_ID && process.env.SECRET_ACCESS_KEY) {
+    console.log('💻 Modo Local: Usando credenciais do .env');
     console.log('ACCESS_KEY_ID:', process.env.ACCESS_KEY_ID ? 'Presente' : 'Ausente');
     console.log('SECRET_ACCESS_KEY:', process.env.SECRET_ACCESS_KEY ? 'Presente' : 'Ausente');
     console.log('REGION:', process.env.REGION ? 'Presente' : 'Ausente');
     console.log('SESSION_TOKEN:', process.env.SESSION_TOKEN ? 'Presente' : 'Ausente');
-} else {
     console.log('✓ Credenciais AWS carregadas com sucesso');
+} else {
+    console.log('🔐 Modo EC2: Usando IAM Role para autenticação AWS');
+    console.log('REGION:', process.env.REGION);
 }
 
 const express = require('express');
@@ -333,12 +335,21 @@ app.delete('/usuarios/:id', async (req, res) => {
 //#endregion
 
 //#region S3
-AWS.config.update({
-    accessKeyId: process.env.ACCESS_KEY_ID,
-    secretAccessKey: process.env.SECRET_ACCESS_KEY,
-    region: process.env.REGION,
-    sessionToken: process.env.SESSION_TOKEN,
-});
+// Configuração do AWS SDK baseada no ambiente
+if (process.env.ACCESS_KEY_ID && process.env.SECRET_ACCESS_KEY) {
+    // Modo Local: usando credenciais explícitas
+    AWS.config.update({
+        accessKeyId: process.env.ACCESS_KEY_ID,
+        secretAccessKey: process.env.SECRET_ACCESS_KEY,
+        region: process.env.REGION,
+        sessionToken: process.env.SESSION_TOKEN,
+    });
+} else {
+    // Modo EC2: usando IAM Role
+    AWS.config.update({
+        region: process.env.REGION,
+    });
+}
 
 const s3 = new AWS.S3();
 
@@ -493,6 +504,12 @@ const mysql = require('mysql2/promise');
 
 // Configuração do MySQL
 const DB_NAME = process.env.CNN_MYSQL_DB_NAME || 'testdb';
+console.log('Configuração MySQL:');
+console.log('Host:', process.env.CNN_MYSQL_DB_HOST);
+console.log('User:', process.env.CNN_MYSQL_DB_USER);
+console.log('Database:', DB_NAME);
+console.log('Port:', process.env.CNN_MYSQL_DB_PORT);
+
 const pool = mysql.createPool({
     host: process.env.CNN_MYSQL_DB_HOST || 'localhost',
     user: process.env.CNN_MYSQL_DB_USER || 'root',

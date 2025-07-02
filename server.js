@@ -127,8 +127,6 @@ app.get('/mongodb/testar-conexao', async (req, res) => {
     } catch (error) {
         await logError('Erro ao conectar no MongoDb' + error, req, error);
         res.status(500).send('Erro na conexão com o MongoDB');
-    } finally {
-        mongoose.connection.close();
     }
 });
 

@@ -645,14 +645,39 @@ app.post('/init-db', async (req, res) => {
    *         description: Produto criado
    */
   app.post('/produtos', async (req, res) => {
-    const { Nome, Descricao, Preco } = req.body;
+    // Aceita tanto campos em maiúscula quanto minúscula
+    const nome = req.body.Nome || req.body.nome;
+    const descricao = req.body.Descricao || req.body.descricao;
+    const preco = req.body.Preco || req.body.preco;
+
+    if (!nome || !descricao || !preco) {
+      return res.status(400).json({ 
+        error: 'Campos obrigatórios: nome, descricao, preco' 
+      });
+    }
+
     try {
       await pool.query(`USE \`${DB_NAME}\``);
       const [result] = await pool.query(
         'INSERT INTO produto (Nome, Descricao, Preco) VALUES (?, ?, ?)',
-        [Nome, Descricao, Preco]
+        [nome, descricao, preco]
       );
-      res.status(201).json({ id: result.insertId });
+      
+      // Busca o produto recém-criado para retornar os dados completos
+      const [rows] = await pool.query(
+        'SELECT * FROM produto WHERE Id = ?', 
+        [result.insertId]
+      );
+      
+      const produtoCriado = rows[0];
+      const response = {
+        id: produtoCriado.id,
+        nome: produtoCriado.nome,
+        descricao: produtoCriado.descricao,
+        preco: produtoCriado.preco
+      };
+      
+      res.status(201).json(response);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

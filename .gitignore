@@ -10,6 +10,10 @@ lerna-debug.log*
 # Arquivos de teste local (não subir para produção)
 test-*.js
 CORRECOES_*.md
+CLOUDWATCH_STATUS.md
+GUIA_VERIFICACAO_AWS.md
+verificar-*.js
+setup-*.sh
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
